@@ -4,7 +4,7 @@
 
 ## Fork Purpose
 
-This fork was created specifically for integration with the [xEndity](https://github.com/xendity) project, which requires:
+This fork was created specifically for integration with the [xEndity](https://github.com/kenleejl/xEndity) and [XwangNet](https://github.com/LightningGod7/XwangNet) projects, which requires:
 
 1. A standardized output structure for firmware analysis
 2. Preservation of extracted files for further analysis
