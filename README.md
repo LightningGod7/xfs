@@ -1,41 +1,76 @@
-# fw2tar: Firmware to Root Filesystem Tarball Converter
+# xfs: Firmware to Root Filesystem Extractor
 
-`fw2tar` is an _unprivileged_ utility designed to seamlessly convert firmware images
-into compressed tar archives, accurately reflecting the root filesystem's original permissions.
+`xfs` is a fork of [fw2tar](https://github.com/rehosting/fw2tar) modified for integration with the xEndity project. It is an _unprivileged_ utility designed to extract firmware images, identify root filesystems, and produce both compressed archives and extracted directory structures.
 
+## Fork Purpose
 
-## Overview
-Converting firmware images into accessible filesystems often presents a significant challenge:
-striking the right balance between maintaining security and ensuring accurate extraction.
-Traditional methods require elevated privileges to replicate the filesystem accurately,
-risking security when processing untrusted inputs. `fw2tar` takes a different approach by
-producing an archive of the target filesystem which faithfully preserves filesystem
-permissions without the need to run any utilities as root.
+This fork was created specifically for integration with the [xEndity](https://github.com/xendity) project, which requires:
 
-`fw2tar` first extracts firmware images using both [unblob](https://github.com/onekey-sec/unblob/) and [binwalk](https://github.com/ReFirmLabs/binwalk),
-finds root filesystems within the extracted directories, and packs each into its own archive while preserving file permissions.
+1. A standardized output structure for firmware analysis
+2. Preservation of extracted files for further analysis
+3. Consistent output paths and reporting for web GUI integration
+4. Simplified command-line interface with sensible defaults
 
-Preserving permissions is vital for [firmware rehosting](https://dspace.mit.edu/handle/1721.1/130505)
-where altering file ownership or permissions could undermine the integrity of an analysis.
+## Changes from Original fw2tar
 
-## Key Features
+The following modifications have been made to the original fw2tar project:
 
-- **Unprivileged Extraction**: Runs with standard user privileges in an unpriviliged docker or singularity container.
-- **Permission Preservation**: Maintains correct filesystem permissions, facilitating accurate dynamic analysis.
-- **Root Filesystem Extraction**: Instead of producing every extracted file, `fw2tar` identifies and outputs archives for each identified (Linux) root filesystem.
-- **Multiple Extractors**: Filesystems can be extracted using `unblob`, `binwalk`, or both.
+1. **Renamed binary and labels**:
+   - Renamed from `fw2tar` to `xfs`
+   - Updated all user-facing labels while preserving internal symbols for easier upstream updates
+
+2. **Modified output behavior**:
+   - Keeps the scratch directory by default
+   - Saves all default outputs to current directory if no output options specified:
+     - `rootfs.tar.gz`: Compressed root filesystem archive
+     - `rootfs/`: Copy of the identified root filesystem (when `--copy-rootfs` is used)
+     - `xfs-extract/`: Preserved extraction directory with all extracted files
+
+3. **Updated command-line arguments**:
+   - `--output`: Now specifies the output directory for all artifacts
+   - Removed `--scratch-dir` (scratch directory is saved by default)
+   - Added `--no-scratch`: Boolean option to disable scratch directory saving
+   - Added `--copy-rootfs`: Option to copy the identified rootfs directory
+   - Added `--progress`: Option to show detailed extraction progress
+
+4. **Improved output reporting**:
+   - Outputs the relative path to the identified rootfs directory
+   - Reports paths relative to the execution environment (`./xfs-extract`, `./rootfs`, `./rootfs.tar.gz`)
+   - Structured progress output for web GUI integration
+   - Default output shows only final results in a specific order
+
+5. **Enhanced error handling**:
+   - Combined existence check for `rootfs.tar.gz` and `xfs-extract` directory
+   - Improved `--force` option to handle both files and directories
 
 ## Usage
 
-Once installed, repackaging a firmware is as simple as:
+Once installed, extracting a firmware is as simple as:
 
 ```
-fw2tar /path/to/your/firmware.bin
+xfs /path/to/your/firmware.bin
 ```
 
-Which will generate `/path/to/your/firmware.rootfs.tar.gz` containing the rootfs of the firmware.
+This will generate:
+- `./rootfs.tar.gz`: Compressed archive of the root filesystem
+- `./xfs-extract/`: Directory containing all extracted files
+- When using `--copy-rootfs`: `./rootfs/`: Copy of the identified root filesystem
 
-There are two types of arguments, wrapper arguments (which handle anything outside of the fw2tar docker container, such as rebuilding the container or specifying a docker image tag) and fw2tar flags (which get passed to the actual application). These can be found with `--wrapper-help` and `--help` respectively.
+### Common Options
+
+```
+xfs /path/to/firmware.bin [OPTIONS]
+
+OPTIONS:
+  --output PATH       Specify output directory for all artifacts
+  --copy-rootfs       Copy the identified rootfs directory
+  --no-scratch        Don't preserve extraction directory
+  --force             Overwrite existing output files/directories
+  --progress          Show detailed extraction progress
+  --help              Show help information
+```
+
+There are two types of arguments, wrapper arguments (which handle anything outside of the xfs docker container) and xfs flags (which get passed to the actual application). These can be found with `--wrapper-help` and `--help` respectively.
 
 ### Installing Pre-built
 
@@ -43,7 +78,7 @@ There are two types of arguments, wrapper arguments (which handle anything outsi
 Ensure Docker is installed on your system, then download the container from GitHub:
 
 ```sh
-docker pull rehosting/fw2tar:latest
+docker pull xendity/xfs:latest
 ```
 
 ### Install the Wrapper
@@ -51,10 +86,10 @@ docker pull rehosting/fw2tar:latest
 Run the following command:
 
 ```
-docker run rehosting/fw2tar
+docker run xendity/xfs
 ```
 
-it will give you a command for installing system-wide or for your individual user. Run the command for your preferred install type, then follow any additional instructions from that command.
+It will give you a command for installing system-wide or for your individual user. Run the command for your preferred install type, then follow any additional instructions from that command.
 
 ### Docker from source
 
@@ -63,63 +98,81 @@ Ensure you have Git and Docker installed, then:
 #### Clone and build the container
 
 ```sh
-git clone https://github.com/rehosting/fw2tar.git
-cd fw2tar
-./fw2tar --build
+git clone https://github.com/xendity/xfs.git
+cd xfs
+./xfs --build
 ```
 
 If you wish to install globally, see "Install the Wrapper" above.
 
-#### Extract Firmware
+## Rebasing After Upstream Updates
 
-Replace `/path/to/your/firmware.bin` with the actual path to your firmware file:
+When the original fw2tar project is updated, you may want to incorporate those changes into this fork. Here's how to rebase your changes:
 
-```sh
-./fw2tar /path/to/your/firmware.bin
-```
+1. **Add the upstream remote**:
+   ```sh
+   git remote add upstream https://github.com/rehosting/fw2tar.git
+   git fetch upstream
+   ```
 
-The resulting filesystem(s) will be output to `/path/to/your/firmware.{binwalk,unblob}.*.tar.gz`, with each root filesystem extracted to its own archive.
+2. **Create a temporary branch for rebasing**:
+   ```sh
+   git checkout -b rebase-temp
+   git rebase upstream/main
+   ```
 
-### Singularity
+3. **Resolve conflicts**:
+   - Focus on preserving the following changes:
+     - Renamed binary and user-facing labels
+     - Modified output behavior and directory structure
+     - Updated command-line arguments
+     - Improved output reporting
+     - Enhanced error handling
+   - Internal code that doesn't affect these features can be updated from upstream
 
-#### Build the Container
+4. **Test thoroughly after rebasing**:
+   ```sh
+   cargo build --release
+   docker build -t xendity/xfs .
+   ```
 
-On a system where you have root permissions, clone this repository and
-then build `fw2tar.sif` using `./build_singularity.sh`, or manually with:
+5. **Update the main branch**:
+   ```sh
+   git checkout main
+   git merge rebase-temp
+   git branch -d rebase-temp
+   ```
 
-```sh
-docker build -t rehosting/fw2tar:latest .
-docker run -v /var/run/docker.sock:/var/run/docker.sock \
-    -v $(pwd):/output \
-    --privileged -t \
-    --rm quay.io/singularity/docker2singularity:v3.9.0 rehsoting/fw2tar
-mv fw2tar*.sif fw2tar.sif
-```
+## Guidelines for Future Changes
 
-#### Run the Container
+When implementing new features or making changes to this fork, follow these guidelines:
 
-```sh
-export INPUT_FILE=/path/to/your/firmware.bin
-singularity exec \
-    -B $(dirname $INPUT_FILE):/host \
-    fw2tar.sif \
-    fakeroot_fw2tar /host/$(basename $INPUT_FILE)
-```
+1. **Maintain compatibility with upstream**:
+   - Keep internal symbols named `fw2tar*` to simplify future rebases
+   - Isolate xEndity-specific changes to clearly identifiable sections
 
-Your filesystem(s) will be output to `/path/to/your/firmware.{binwalk,unblob}.tar.gz`.
+2. **Follow consistent output conventions**:
+   - Use relative paths starting with `./` for user-facing output
+   - Maintain the standard output directory structure
+   - Ensure progress reporting is consistent with the established format
 
-## Comparing Filesystem Archives
+3. **Preserve error handling patterns**:
+   - Follow the existing error handling patterns
+   - Use the `Fw2tarError` enum for new error types
 
-To compare filesystems generated with binwalk and unblob, use the `diff_archives.py`
- script included in the repository.
- This can help identify discrepancies and verify the accuracy of the extracted filesystems.
+4. **Testing changes**:
+   - Test with various firmware types
+   - Verify both Docker and native execution
+   - Ensure the web GUI integration still works
 
-## Extractor Forks
-To accomplish its goals, we maintain slightly-modified forks of both [unblob](https://github.com/onekey-sec/unblob/) and [binwalk](https://github.com/ReFirmLabs/binwalk).
-- [unblob fork](https://github.com/rehosting/unblob): forked to preserve permissions and handle symlinks.
-- [binwalk fork](https://github.com/rehosting/binwalk): forked to better support ubifs extraction.
+5. **Documentation**:
+   - Update this README.md with any new features or changes
+   - Document any new command-line arguments
+   - Keep the usage examples current
 
-We express our gratitude to the developers of these tools for their hard work that makes `fw2tar` possible.
+## Original fw2tar Information
+
+For information about the original project, including its features, extractors, and distribution statements, please see the [fw2tar repository](https://github.com/rehosting/fw2tar).
 
 # Distribution
 
