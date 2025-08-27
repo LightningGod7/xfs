@@ -31,26 +31,47 @@ pub fn main(args: args::Args) -> Result<(BestExtractor, PathBuf), Fw2tarError> {
         }
     }
 
-    let output = args
-        .output
-        .unwrap_or_else(|| {
-            // Use file_stem() which should behave like Python's Path.stem
-            if let Some(stem) = args.firmware.file_stem() {
-                args.firmware.with_file_name(stem)
-            } else {
-                // No stem available, use as-is
-                args.firmware.clone()
-            }
-        });
+    // Determine output directory - default to current directory
+    let output_dir = args.output.unwrap_or_else(|| env::current_dir().unwrap());
+    
+    // Ensure output directory exists
+    if !output_dir.exists() {
+        fs::create_dir_all(&output_dir)?;
+    }
 
-    let selected_output_path = {
-        // Simple string append to avoid with_extension() being greedy
-        let file_name = output.file_name().unwrap().to_string_lossy();
-        output.with_file_name(format!("{}.rootfs.tar.gz", file_name))
+    // Extract base filename from firmware (for future use)
+    let _firmware_base = if let Some(stem) = args.firmware.file_stem() {
+        stem.to_string_lossy().to_string()
+    } else {
+        args.firmware.file_name().unwrap().to_string_lossy().to_string()
     };
 
-    if selected_output_path.exists() && !args.force {
-        return Err(Fw2tarError::OutputExists(selected_output_path));
+    // Set up output paths
+    let selected_output_path = output_dir.join("rootfs.tar.gz");
+    let extract_dir_path = output_dir.join("xfs-extract");
+    let rootfs_dir_path = output_dir.join("rootfs");
+
+    // Check if either rootfs.tar.gz or xfs-extract directory already exist
+    if (selected_output_path.exists() || extract_dir_path.exists()) && !args.force {
+        // Return error with the path that exists (prioritize rootfs.tar.gz if both exist)
+        if selected_output_path.exists() {
+            return Err(Fw2tarError::OutputExists(selected_output_path));
+        } else {
+            return Err(Fw2tarError::OutputExists(extract_dir_path));
+        }
+    }
+    
+    // If --force is specified, remove existing files/directories
+    if args.force {
+        // Remove rootfs.tar.gz if it exists
+        if selected_output_path.exists() {
+            fs::remove_file(&selected_output_path)?;
+        }
+        
+        // Remove xfs-extract directory if it exists
+        if extract_dir_path.exists() {
+            fs::remove_dir_all(&extract_dir_path)?;
+        }
     }
 
     let metadata = Metadata {
@@ -84,8 +105,11 @@ pub fn main(args: args::Args) -> Result<(BestExtractor, PathBuf), Fw2tarError> {
                 if let Err(e) = extract_and_process(
                     extractor,
                     &args.firmware,
-                    &output,
-                    args.scratch_dir.as_deref(),
+                    &output_dir,
+                    &extract_dir_path,
+                    !args.no_scratch,
+                    args.copy_rootfs,
+                    &rootfs_dir_path,
                     args.loud,
                     args.primary_limit,
                     args.secondary_limit,
@@ -114,11 +138,7 @@ pub fn main(args: args::Args) -> Result<(BestExtractor, PathBuf), Fw2tarError> {
         if removed_devices.is_empty() {
             log::warn!("No device files were found during extraction, skipping writing log");
         } else {
-            let devices_log_path = {
-                // Simple string append to avoid with_extension() being greedy
-                let file_name = output.file_name().unwrap().to_string_lossy();
-                output.with_file_name(format!("{}.devices.log", file_name))
-            };
+            let devices_log_path = output_dir.join("devices.log");
             fs::write(
                 devices_log_path,
                 removed_devices.join("\n"),

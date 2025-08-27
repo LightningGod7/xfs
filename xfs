@@ -14,34 +14,34 @@ if [ -t 0 ]; then
 fi
 
 
-image="rehosting/fw2tar"
+image="xendity/xfs"
 
-fw2tar_run() {
+xfs_run() {
     local cmd=()
     local maps=()
     local build=false
     local singularity=false
     local verbose=false
-    local image="rehosting/fw2tar" # Name of container instance
+    local image="xendity/xfs" # Name of container instance
 
     # Process each command-line argument
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --wrapper-help)
-                echo "Usage: fw2tar [WRAPPER FLAGS] [FLAGS] FIRMWARE_FILE"
-                echo "Wrapper script for running FW2TAR in a Docker container"
+                echo "Usage: xfs [WRAPPER FLAGS] [FLAGS] FIRMWARE_FILE"
+                echo "Wrapper script for running XFS in a Docker container"
                 echo ""
-                echo "Wrapper-specific flags may be passed in *before* the fw2tar flags and args. If a value is required, it must be specified immediately after the flag with a space."
-                echo "  --build: Build the fw2tar container before running the specified command. If no other arguments are provided, the container will be built and the script will exit."
-                echo "  --build-singularity: Build the fw2tar container as a sif."
+                echo "Wrapper-specific flags may be passed in *before* the xfs flags and args. If a value is required, it must be specified immediately after the flag with a space."
+                echo "  --build: Build the xfs container before running the specified command. If no other arguments are provided, the container will be built and the script will exit."
+                echo "  --build-singularity: Build the xfs container as a sif."
                 echo "  --image: Which image to run. Default: $image"
-                echo "  --verbose: Print verbose output for fw2tar wrapper (e.g., filesystem mappings, docker command)"
+                echo "  --verbose: Print verbose output for xfs wrapper (e.g., filesystem mappings, docker command)"
                 echo "  --wrapper-help: this message"
                 echo ""
-                echo "All other arguments will be passed through to the main fw2tar command in the container."
+                echo "All other arguments will be passed through to the main xfs command in the container."
                 echo "For example try:"
-                echo "  fw2tar --help"
-                echo "  fw2tar ./your_firmware.bin"
+                echo "  xfs --help"
+                echo "  xfs ./your_firmware.bin"
                 exit 0
                 ;;
             --build)
@@ -91,8 +91,8 @@ fw2tar_run() {
             exit 1
         fi
         # Check if current directory is named fw2tar
-        if [ ! "$(basename "$(pwd)")" == "fw2tar" ]; then
-            echo "Current directory is not named fw2tar but you requested a container rebuild"
+        if [ ! "$(basename "$(pwd)")" == "xfs" ]; then
+            echo "Current directory is not named xfs but you requested a container rebuild"
             exit 1
         fi
 
@@ -108,8 +108,8 @@ fw2tar_run() {
             docker run -v /var/run/docker.sock:/var/run/docker.sock \
                 -v $(pwd):/output \
                 --privileged -t \
-                --rm quay.io/singularity/docker2singularity:v3.9.0 rehosting/fw2tar
-            mv rehosting_fw2tar*.sif fw2tar.sif
+                --rm quay.io/singularity/docker2singularity:v3.9.0 xendity/xfs
+            mv xendity_xfs*.sif xfs.sif
 
             echo "$image built. Exiting."
             exit 0
@@ -124,7 +124,7 @@ fw2tar_run() {
 
     # Check for firmware file and map it
     for i in "${!cmd[@]}"; do
-	if [[ -f "${cmd[$i]}" ]] && [[ "${cmd[$((i - 1))]}" != "--output" ]] && [[ "${cmd[$((i - 1))]}" != "--scratch-dir" ]]; then
+	if [[ -f "${cmd[$i]}" ]] && [[ "${cmd[$((i - 1))]}" != "--output" ]]; then
 	    local arg="${cmd[$i]}"
 	    local abspath=$(realpath "$arg")
 	    local host_path=$(dirname "$abspath")
@@ -134,9 +134,14 @@ fw2tar_run() {
 	fi
     done
 
-    # Check for "--output" flag, create and map the directory as necessary
+    # Check for "--output" flag or set default to current directory
+    local has_output_flag=false
+    local output_dir=""
+    
+    # First check if --output is specified
     for ((i=0; i<${#cmd[@]}; i++)); do
         if [[ "${cmd[$i]}" == "--output" && $((i+1)) -lt ${#cmd[@]} ]]; then
+            has_output_flag=true
             output_dir="${cmd[$i+1]}"
             if [[ ! -d "$output_dir" ]]; then
                 mkdir -p "$output_dir"
@@ -147,26 +152,19 @@ fw2tar_run() {
             local guest_path="/host_$(basename "$abspath")"
             maps+=("$abspath:$guest_path")
             cmd[$i+1]="/host_$(basename "$abspath")/$(basename "$output_dir")"
-
         fi
     done
+    
+    # If no output flag was specified, add current directory as default
+    if [[ "$has_output_flag" == "false" ]]; then
+        output_dir="$(pwd)"
+        local abspath=$(realpath "$output_dir")
+        local guest_path="/host_$(basename "$abspath")"
+        maps+=("$abspath:$guest_path")
+        cmd+=("--output" "/host_$(basename "$abspath")")
+    fi
 
-    # Check for "--scratch-dir" flag, create and map the directory as necessary
-    for ((i=0; i<${#cmd[@]}; i++)); do
-        if [[ "${cmd[$i]}" == "--scratch-dir" && $((i+1)) -lt ${#cmd[@]} ]]; then
-            scratch_dir="${cmd[$i+1]}"
-            if [[ ! -d "$scratch_dir" ]]; then
-                mkdir -p "$scratch_dir"
-            fi
-
-            # Add mapping for the scratch directory
-            local abspath=$(realpath "$scratch_dir")
-            local guest_path="/scratch"
-            maps+=("$abspath:$guest_path")
-            cmd[$i+1]="/scratch"
-
-        fi
-    done
+    # No need to handle scratch-dir as it's been removed in favor of --no-scratch
 
     # Sort mappings by path length
     IFS=$'\n' maps=($(sort -r <<<"${maps[*]}"))
@@ -191,15 +189,15 @@ fw2tar_run() {
 
     # Add env variable of penguin bash script hash
     hash=$(sha1sum "$0" | awk '{print $1}')
-    docker_cmd+=("-e" "FW2TAR_HASH=$hash")
+    docker_cmd+=("-e" "XFS_HASH=$hash")
 
     docker_cmd+=("$image")
-    docker_cmd+=("fakeroot_fw2tar")
+    docker_cmd+=("fakeroot_xfs")
     docker_cmd+=("${cmd[@]}")
 
     if $verbose; then
-        echo "${BOLD}Fw2tar command:${RESET}"
-        echo "  fw2tar ${cmd[@]}"
+        echo "${BOLD}XFS command:${RESET}"
+        echo "  xfs ${cmd[@]}"
         echo
 
         echo "${BOLD}Complete docker commands:${RESET}"
@@ -216,6 +214,6 @@ fw2tar_run() {
 
 # Main function
 main() {
-    fw2tar_run "$@"
+    xfs_run "$@"
 }
 main "$@"

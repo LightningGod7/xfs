@@ -8,30 +8,30 @@ use fw2tar::BestExtractor;
 fn main() {
     let args = Args::parse();
 
-    if args.loud && std::env::var("FW2TAR_LOG").is_err() {
-        std::env::set_var("FW2TAR_LOG", "debug");
+    if args.loud && std::env::var("XFS_LOG").is_err() {
+        std::env::set_var("XFS_LOG", "debug");
     }
 
-    pretty_env_logger::init_custom_env("FW2TAR_LOG");
+    pretty_env_logger::init_custom_env("XFS_LOG");
 
     match fw2tar::main(args) {
         Ok((res, output_path)) => match res {
             BestExtractor::Best(extractor) => {
-                println!("Best extractor: {extractor}, archive at {output_path:?}");
+                println!("xfs: Best extractor: {extractor}, archive at {output_path:?}");
             }
             BestExtractor::Only(extractor) => {
-                println!("Only extractor: {extractor}, archive at {output_path:?}");
+                println!("xfs: Only extractor: {extractor}, archive at {output_path:?}");
             }
             BestExtractor::Identical(extractor) => {
-                println!("Extractors Identical, using {extractor}. Archive at {output_path:?}");
+                println!("xfs: Extractors Identical, using {extractor}. Archive at {output_path:?}");
             }
             BestExtractor::None => {
-                println!("No extractor succeeded.");
+                println!("xfs: No extractor succeeded.");
                 exit(2);
             }
         },
         Err(e) => {
-            eprintln!("{e}");
+            eprintln!("xfs: {e}");
             exit(1);
         }
     }

@@ -1,19 +1,23 @@
 use clap::Parser;
 use std::path::PathBuf;
 
-/// Convert firmware images into compressed tar archives
+/// Extract firmware images to filesystem archives
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
     pub firmware: PathBuf,
 
-    /// Scratch directory (optional). Default /tmp
-    #[arg(long, alias("scratch_dir"))]
-    pub scratch_dir: Option<PathBuf>,
-
-    /// Output file base (optional). Default is firmware without extension. Final output will have .rootfs.tar.gz appended.
+    /// Output directory for all artifacts (optional). Default is current directory.
     #[arg(long)]
     pub output: Option<PathBuf>,
+
+    /// Disable saving scratch directory (by default scratch directory is saved)
+    #[arg(long)]
+    pub no_scratch: bool,
+
+    /// Copy out the identified rootfs directory (default: false)
+    #[arg(long)]
+    pub copy_rootfs: bool,
 
     /// Comma-separated list of extractors. Supported values are binwalk, binwalkv3, unblob
     #[arg(long)]

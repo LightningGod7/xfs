@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# Generate commands to write the contents of /usr/local/bin/xfs to /usr/local/bin/xfs
+# This script is run as ./xfs_install | sudo sh
+
+echo "#!/bin/bash"
+
+echo "cat << 'EOF' | sudo tee /usr/local/bin/xfs >/dev/null"
+printf "%s" "$(cat /usr/local/src/xfs_wrapper)"
+
+echo
+echo "EOF"
+echo sudo chmod +x /usr/local/bin/xfs
+
+echo echo "xfs installed successfully to /usr/local/bin/xfs"

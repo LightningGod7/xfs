@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Generate commands to write the contents of /xfs/cmd to ~/.local/bin/xfs
+# This script is run as ./xfs_install.local | sh
+
+echo "#!/bin/bash"
+echo "mkdir -p \$HOME/.local/bin"
+
+echo "cat << 'EOF' > ~/.local/bin/xfs"
+printf "%s" "$(cat /usr/local/src/xfs_wrapper)"
+echo
+echo "EOF"
+
+# Make the script executable and add to path
+echo "chmod +x \$HOME/.local/bin/xfs"
+echo "echo 'export PATH="\$HOME/.local/bin:\$PATH"' >> \$HOME/.bashrc"
+
+# Ask user to reload .bashrc to update path
+echo 'BOLD=$(tput bold)'
+echo 'RESET=$(tput sgr0)'
+
+echo "echo \"${BOLD}Success!${RESET} xfs installed to ~/.local/bin/xfs. Update your PATH to use it by running:\""
+echo "echo \"  $ \${BOLD}source ~/.bashrc\${RESET}\""
+echo "echo"
+echo "echo \"Then run xfs, for example:\""
+echo "echo \"  $ \${BOLD}xfs --help\""

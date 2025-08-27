@@ -13,6 +13,9 @@ pub enum Fw2tarError {
     #[error("Provided firmware path ({0:?}) does not exist.")]
     FirmwareDoesNotExist(PathBuf),
 
-    #[error("Output file ({0:?}) already exists. Use --force to overwrite.")]
+    #[error("Output file or directory ({0:?}) already exists. Use --force to overwrite.")]
     OutputExists(PathBuf),
+
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
 }

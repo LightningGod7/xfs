@@ -165,12 +165,12 @@ RUN --mount=type=secret,id=github_token \
         /usr/local/lib/python3.10/dist-packages/arpy.py
 
 # Copy wrapper script into container so we can copy out - note we don't put it on guest path
-COPY ./fw2tar /usr/local/src/fw2tar_wrapper
+COPY ./xfs /usr/local/src/xfs_wrapper
 # And add install helpers which generate shell commands to install it on host
-COPY ./src/resources/banner.sh ./src/resources/fw2tar_install ./src/resources/fw2tar_install.local /usr/local/bin/
+COPY ./src/resources/banner.sh ./src/resources/xfs_install ./src/resources/xfs_install.local /usr/local/bin/
 # Warn on interactive shell sessions and provide instructions for install
 RUN echo '[ ! -z "$TERM" ] && [ -z "$NOBANNER" ] && /usr/local/bin/banner.sh' >> /etc/bash.bashrc
 
-COPY src/fakeroot_fw2tar /usr/local/bin/fakeroot_fw2tar
+COPY src/fakeroot_xfs /usr/local/bin/fakeroot_xfs
 
 CMD ["/usr/local/bin/banner.sh"]
