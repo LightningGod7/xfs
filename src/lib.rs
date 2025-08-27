@@ -11,9 +11,11 @@ use metadata::Metadata;
 
 use std::cmp::Reverse;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::{env, fs, thread};
+
+use crate::analysis::copy_dir_all;
 
 pub enum BestExtractor {
     Best(&'static str),
@@ -32,7 +34,7 @@ pub fn main(args: args::Args) -> Result<(BestExtractor, PathBuf), Fw2tarError> {
     }
 
     // Determine output directory - default to current directory
-    let output_dir = args.output.unwrap_or_else(|| env::current_dir().unwrap());
+    let output_dir = args.output.clone().unwrap_or_else(|| env::current_dir().unwrap());
     
     // Ensure output directory exists
     if !output_dir.exists() {
@@ -84,6 +86,7 @@ pub fn main(args: args::Args) -> Result<(BestExtractor, PathBuf), Fw2tarError> {
 
     let extractors: Vec<_> = args
         .extractors
+        .clone() // Clone to avoid partial move
         .map(|extractors| extractors.split(",").map(String::from).collect())
         .unwrap_or_else(|| {
             extractors::all_extractor_names()
@@ -116,6 +119,7 @@ pub fn main(args: args::Args) -> Result<(BestExtractor, PathBuf), Fw2tarError> {
                     &results,
                     &metadata,
                     removed_devices.as_ref(),
+                    &args,
                 ) {
                     log::info!("{} error: {e}", extractor.name());
                 }
@@ -163,6 +167,109 @@ pub fn main(args: args::Args) -> Result<(BestExtractor, PathBuf), Fw2tarError> {
     let best_result = best_results[0];
 
     fs::rename(&best_result.path, &selected_output_path).unwrap();
+    
+    // Print the rootfs path for the best extractor only with relative path
+    let relative_rootfs_path = format!("./xfs-extract/{}", best_result.rootfs_path.strip_prefix(extract_dir_path.as_path()).unwrap_or(&best_result.rootfs_path).display());
+    
+    // Print rootfs path based on mode
+    if args.progress {
+        println!("xfs: [STAGE 3/4] Selecting best extractor: {}", best_result.extractor);
+        println!("xfs: [STAGE 3/4] rootfs found at: {}", relative_rootfs_path);
+    } else {
+        println!("xfs: rootfs found at: {}", relative_rootfs_path);
+    }
+
+    // If copy_rootfs is specified, copy the rootfs directory from the best extractor
+    if args.copy_rootfs {
+        let target_rootfs_dir = rootfs_dir_path;
+        
+        // No debug information needed
+        
+        // Try to copy the rootfs directory, but handle errors gracefully
+        match (|| -> Result<(), Fw2tarError> {
+            // Remove existing directory if it exists
+            if target_rootfs_dir.exists() {
+                fs::remove_dir_all(&target_rootfs_dir)?;
+            }
+            
+            // Create parent directories if they don't exist
+            if let Some(parent) = target_rootfs_dir.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            
+            // In Docker container, we need to handle paths differently
+            // Instead of trying to copy directly, we'll use a command to copy
+            let source_path = &best_result.rootfs_path;
+            
+            // Check if we're running in a container (common Docker env var)
+            let in_container = env::var("container").is_ok() || Path::new("/.dockerenv").exists();
+            
+            // Create target directory
+            fs::create_dir_all(&target_rootfs_dir)?;
+            
+            if in_container {
+                // Use system cp command which handles Docker volume mounts better
+                // Copy contents of the source directory to the target directory
+                let status = std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(format!("cp -a {}/* {}", source_path.display(), target_rootfs_dir.display()))
+                    .status()?;
+                
+                if !status.success() {
+                    return Err(Fw2tarError::IoError(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("cp command failed with status: {}", status)
+                    )));
+                }
+            } else {
+                // Not in container, use regular copy
+                // Check if source exists
+                if !source_path.exists() {
+                    return Err(Fw2tarError::IoError(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("Source rootfs path does not exist: {}", source_path.display())
+                    )));
+                }
+                
+                // Copy the directory contents
+                // Read source directory entries
+                let entries = fs::read_dir(source_path)?;
+                
+                // Copy each entry to the target directory
+                for entry in entries {
+                    let entry = entry?;
+                    let path = entry.path();
+                    let target = target_rootfs_dir.join(entry.file_name());
+                    
+                    if path.is_dir() {
+                        copy_dir_all(&path, &target)?;
+                    } else {
+                        fs::copy(&path, &target)?;
+                    }
+                }
+            }
+            
+            Ok(())
+        })() {
+            Ok(_) => {
+                if args.progress {
+                    println!("xfs: [STAGE 4/4] Creating output files");
+                    println!("xfs: [STAGE 4/4] rootfs successfully copied to: ./rootfs");
+                } else {
+                    println!("xfs: rootfs successfully copied to: ./rootfs");
+                }
+            },
+            Err(e) => {
+                if args.progress {
+                    eprintln!("xfs: [STAGE 4/4] Warning: Failed to copy rootfs directory: {}", e);
+                    eprintln!("xfs: [STAGE 4/4] The archive was created successfully, but the rootfs directory couldn't be copied.");
+                } else if args.loud {
+                    eprintln!("xfs: Warning: Failed to copy rootfs directory: {}", e);
+                    eprintln!("xfs: The archive was created successfully, but the rootfs directory couldn't be copied.");
+                }
+            }
+        }
+    }
 
     result
 }

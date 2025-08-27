@@ -26,6 +26,7 @@ pub struct ExtractionResult {
     pub archive_hash: String,
     pub file_node_count: usize,
     pub path: PathBuf,
+    pub rootfs_path: PathBuf, // Path to the rootfs directory
 }
 
 #[derive(Error, Debug)]
@@ -46,14 +47,15 @@ pub fn extract_and_process(
     output_dir: &Path,
     extract_dir_base: &Path,
     save_scratch: bool,
-    copy_rootfs: bool,
-    rootfs_dir_path: &Path,
+    _copy_rootfs: bool,
+    _rootfs_dir_path: &Path,
     verbose: bool,
     primary_limit: usize,
     _secondary_limit: usize,
     results: &Mutex<Vec<ExtractionResult>>,
     metadata: &Metadata,
     removed_devices: Option<&Mutex<HashSet<PathBuf>>>,
+    args: &crate::args::Args,
 ) -> Result<(), ExtractProcessError> {
     let extractor_name = extractor.name();
 
@@ -84,36 +86,75 @@ pub fn extract_and_process(
 
     let start_time = Instant::now();
 
-    extractor
-        .extract(in_file, actual_extract_dir, &log_file, verbose)
-        .map_err(ExtractProcessError::ExtractFail)?;
-
-    let elapsed = start_time.elapsed().as_secs_f32();
-
-    if verbose {
-        println!("xfs: {extractor_name} took {elapsed:.2} seconds")
+    // Print extraction status if progress flag is enabled
+    if args.progress {
+        println!("xfs: [STAGE 1/4] {} - extraction: starting...", extractor_name);
+    } else if verbose {
+        // Only print extraction status in verbose mode for non-progress output
+        print!("xfs: {} - extraction: ", extractor_name);
+    }
+    
+    let extraction_result = extractor
+        .extract(in_file, actual_extract_dir, &log_file, verbose);
+    
+    if extraction_result.is_ok() {
+        if args.progress {
+            println!("xfs: [STAGE 1/4] {} - extraction: completed ✓", extractor_name);
+        } else if verbose {
+            println!("✓");
+        }
     } else {
-        log::info!("{extractor_name} took {elapsed:.2} seconds");
+        if args.progress || verbose {
+            println!("✗");
+        }
+        return Err(ExtractProcessError::ExtractFail(extraction_result.err().unwrap()));
     }
 
+    let elapsed = start_time.elapsed().as_secs_f32();
+    log::info!("{extractor_name} took {elapsed:.2} seconds");
+
+    // Print rootfs finding status if progress flag is enabled
+    if args.progress {
+        println!("xfs: [STAGE 2/4] {} - found rootfs: searching...", extractor_name);
+    } else if verbose {
+        // Only print rootfs finding status in verbose mode for non-progress output
+        print!("xfs: {} - found rootfs: ", extractor_name);
+    }
+    
     let rootfs_choices = find_linux_filesystems(actual_extract_dir, None, extractor_name);
 
     if rootfs_choices.is_empty() {
+        if args.progress || verbose {
+            println!("✗");
+        }
         log::error!("No Linux filesystems found extracting {in_file:?} with {extractor_name}");
         return Err(ExtractProcessError::FailToFind);
+    } else {
+        if args.progress {
+            println!("xfs: [STAGE 2/4] {} - found rootfs: located ✓", extractor_name);
+        } else if verbose {
+            println!("✓");
+        }
     }
 
     for (i, fs) in rootfs_choices.iter().enumerate() {
         if i >= primary_limit {
-            println!(
-                "xfs: WARNING: skipping {n} filesystems, if files are missing you may need to set --primary-limit higher",
-                n=rootfs_choices.len() - primary_limit
-            );
+            if args.progress {
+                println!(
+                    "xfs: [STAGE 2/4] WARNING: skipping {n} filesystems, if files are missing you may need to set --primary-limit higher",
+                    n=rootfs_choices.len() - primary_limit
+                );
+            } else if verbose {
+                println!(
+                    "xfs: WARNING: skipping {n} filesystems, if files are missing you may need to set --primary-limit higher",
+                    n=rootfs_choices.len() - primary_limit
+                );
+            }
             break;
         }
 
         // Output the relative path to the identified rootfs directory
-        let relative_rootfs_path = if save_scratch {
+        let _relative_rootfs_path = if save_scratch {
             let relative_base = extract_dir_base.strip_prefix(output_dir).unwrap_or(extract_dir_base);
             relative_base.join(extractor_name).join(fs.path.strip_prefix(actual_extract_dir).unwrap_or(&fs.path))
         } else {
@@ -121,7 +162,7 @@ pub fn extract_and_process(
             fs.path.clone()
         };
         
-        println!("xfs: rootfs found at: {}", relative_rootfs_path.display());
+        // Only print rootfs path for the best extractor later
 
         let tar_path = if i == 0 {
             output_dir.join("rootfs.tar.gz")
@@ -129,19 +170,7 @@ pub fn extract_and_process(
             output_dir.join(format!("rootfs.{i}.tar.gz"))
         };
 
-        // Copy rootfs directory if requested
-        if copy_rootfs && i == 0 {
-            let target_rootfs_dir = if rootfs_choices.len() > 1 {
-                rootfs_dir_path.with_extension(format!("{i}"))
-            } else {
-                rootfs_dir_path.to_path_buf()
-            };
-            
-            if target_rootfs_dir.exists() {
-                std::fs::remove_dir_all(&target_rootfs_dir).unwrap();
-            }
-            copy_dir_all(&fs.path, &target_rootfs_dir).unwrap();
-        }
+        // We'll copy the rootfs directory later if needed, after determining the best extractor
 
         // XXX: improve error handling here
         let file_node_count = tar_fs(&fs.path, &tar_path, metadata, removed_devices).unwrap();
@@ -156,6 +185,7 @@ pub fn extract_and_process(
             archive_hash,
             file_node_count,
             path: tar_path,
+            rootfs_path: fs.path.clone(),
         });
     }
 
@@ -174,7 +204,7 @@ pub fn sha1_file(file: &Path) -> io::Result<String> {
     Ok(format!("{result:x}"))
 }
 
-fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
+pub fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;

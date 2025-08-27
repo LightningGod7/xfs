@@ -2,7 +2,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 /// Extract firmware images to filesystem archives
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Args {
     pub firmware: PathBuf,
@@ -23,7 +23,7 @@ pub struct Args {
     #[arg(long)]
     pub extractors: Option<String>,
 
-    /// Enable loud (verbose) output
+    /// Enable loud (verbose) output - shows all extraction and processing steps
     #[arg(long)]
     pub loud: bool,
 
@@ -54,4 +54,8 @@ pub struct Args {
     /// Timeout for extractors, measured in seconds
     #[arg(long, default_value_t = 20)]
     pub timeout: u64,
+    
+    /// Show detailed progress output with stage information
+    #[arg(long)]
+    pub progress: bool,
 }

@@ -3,7 +3,7 @@
 *.tar.gz
 *.new
 tests/tmp_downloads/
-
+/out
 
 # Added by cargo
 
