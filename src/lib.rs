@@ -14,6 +14,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::{env, fs, thread};
+use serde_json::json;
 
 use crate::analysis::copy_dir_all;
 
@@ -73,6 +74,12 @@ pub fn main(args: args::Args) -> Result<(BestExtractor, PathBuf), Fw2tarError> {
         // Remove xfs-extract directory if it exists
         if extract_dir_path.exists() {
             fs::remove_dir_all(&extract_dir_path)?;
+        }
+        
+        // Remove xfs_results.json if it exists
+        let results_json_path = output_dir.join("xfs_results.json");
+        if results_json_path.exists() {
+            fs::remove_file(&results_json_path)?;
         }
     }
 
@@ -141,7 +148,8 @@ pub fn main(args: args::Args) -> Result<(BestExtractor, PathBuf), Fw2tarError> {
 
         if removed_devices.is_empty() {
             log::warn!("No device files were found during extraction, skipping writing log");
-        } else {
+        } else if args.logs {
+            // Only write devices.log if --logs flag is specified
             let devices_log_path = output_dir.join("devices.log");
             fs::write(
                 devices_log_path,
@@ -154,9 +162,29 @@ pub fn main(args: args::Args) -> Result<(BestExtractor, PathBuf), Fw2tarError> {
     let results = results.lock().unwrap();
     let mut best_results: Vec<_> = results.iter().filter(|&res| res.index == 0).collect();
 
-    let result = if best_results.is_empty() {
+    // Get relative path to extracted files directory
+    let relative_extract_dir = "./xfs-extract";
+    
+    // Create results.json even if no rootfs is found
+    if best_results.is_empty() {
+        // Create xfs_results.json with null values for failure case
+        let results_json = json!({
+            "preferred_extractor": null,
+            "identified_rootfs": null,
+            "rootfs_archive": null,
+            "copied_rootfs": null,
+            "extracted_files": relative_extract_dir
+        });
+        
+        // Write the results JSON file
+        let results_json_path = output_dir.join("xfs_results.json");
+        let json_content = serde_json::to_string_pretty(&results_json).unwrap() + "\n";
+        fs::write(&results_json_path, json_content).unwrap();
+        
         return Ok((BestExtractor::None, selected_output_path));
-    } else if best_results.len() == 1 {
+    }
+    
+    let result = if best_results.len() == 1 {
         Ok((BestExtractor::Only(best_results[0].extractor), selected_output_path.clone()))
     } else {
         best_results.sort_by_key(|res| Reverse((res.file_node_count, res.extractor == "unblob")));
@@ -178,6 +206,25 @@ pub fn main(args: args::Args) -> Result<(BestExtractor, PathBuf), Fw2tarError> {
     } else {
         println!("xfs: rootfs found at: {}", relative_rootfs_path);
     }
+    
+    // Create xfs_results.json with the required information
+    let mut results_json = json!({
+        "preferred_extractor": best_result.extractor,
+        "identified_rootfs": relative_rootfs_path,
+        "rootfs_archive": selected_output_path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+        "copied_rootfs": null,
+        "extracted_files": relative_extract_dir
+    });
+    
+    // Update copied_rootfs field if copy_rootfs is true
+    if args.copy_rootfs {
+        results_json["copied_rootfs"] = json!("./rootfs");
+    }
+    
+    // Write the results JSON file
+    let results_json_path = output_dir.join("xfs_results.json");
+    let json_content = serde_json::to_string_pretty(&results_json).unwrap() + "\n";
+    fs::write(&results_json_path, json_content).unwrap();
 
     // If copy_rootfs is specified, copy the rootfs directory from the best extractor
     if args.copy_rootfs {
