@@ -151,7 +151,7 @@ xfs_run() {
             local abspath=$(realpath "$output_dir")
             local guest_path="/host_$(basename "$abspath")"
             maps+=("$abspath:$guest_path")
-            cmd[$i+1]="/host_$(basename "$abspath")/$(basename "$output_dir")"
+            cmd[$i+1]="$guest_path"
         fi
     done
     
@@ -161,7 +161,7 @@ xfs_run() {
         local abspath=$(realpath "$output_dir")
         local guest_path="/host_$(basename "$abspath")"
         maps+=("$abspath:$guest_path")
-        cmd+=("--output" "/host_$(basename "$abspath")")
+        cmd+=("--output" "$guest_path")
     fi
 
     # No need to handle scratch-dir as it's been removed in favor of --no-scratch
