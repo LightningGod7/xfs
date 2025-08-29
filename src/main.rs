@@ -56,8 +56,8 @@ fn main() {
                 }
             }
             BestExtractor::None => {
-                println!("xfs: no extractor succeeded");
-                exit(2);
+                println!("xfs: [STAGE 3/4] No Linux filesystems were found - perhaps RTOS?");
+                println!("xfs: Process complete");
             }
         },
         Err(e) => {

@@ -24,8 +24,12 @@ pub struct Args {
     pub extractors: Option<String>,
 
     /// Enable loud (verbose) output - shows all extraction and processing steps
-    #[arg(long)]
-    pub loud: bool,
+#[arg(long)]
+pub loud: bool,
+
+/// Enable writing log files for extractors
+#[arg(long)]
+pub logs: bool,
 
     /// Create a file next to the output file reporting the extractor used
     #[arg(long, alias("report_extractor"))]

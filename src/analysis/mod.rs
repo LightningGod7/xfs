@@ -82,7 +82,13 @@ pub fn extract_and_process(
         temp_dir.as_ref().unwrap().path()
     };
 
-    let log_file = output_dir.join(format!("{extractor_name}.log"));
+    // Only create log file if --logs flag is specified
+    let log_file = if args.logs {
+        output_dir.join(format!("{extractor_name}.log"))
+    } else {
+        // Use a temporary path that will be discarded
+        env::temp_dir().join(format!("{extractor_name}_{}.log", std::process::id()))
+    };
 
     let start_time = Instant::now();
 
@@ -115,23 +121,24 @@ pub fn extract_and_process(
 
     // Print rootfs finding status if progress flag is enabled
     if args.progress {
-        println!("xfs: [STAGE 2/4] {} - found rootfs: searching...", extractor_name);
+        println!("xfs: [STAGE 2/4] {} - identify rootfs: searching...", extractor_name);
     } else if verbose {
         // Only print rootfs finding status in verbose mode for non-progress output
-        print!("xfs: {} - found rootfs: ", extractor_name);
+        print!("xfs: {} - identify rootfs: ", extractor_name);
     }
     
     let rootfs_choices = find_linux_filesystems(actual_extract_dir, None, extractor_name);
 
     if rootfs_choices.is_empty() {
-        if args.progress || verbose {
-            println!("✗");
-        }
-        log::error!("No Linux filesystems found extracting {in_file:?} with {extractor_name}");
+        // if args.progress || verbose {
+        //     println!("✗");
+        // }
+        println!("\txfs: [STAGE 2/4] {} - identify rootfs: No Linux rootfs found ✗", extractor_name);
+        // log::error!("No Linux filesystems found extracting {in_file:?} with {extractor_name}");
         return Err(ExtractProcessError::FailToFind);
     } else {
         if args.progress {
-            println!("xfs: [STAGE 2/4] {} - found rootfs: located ✓", extractor_name);
+            println!("\txfs: [STAGE 2/4] {} - identify rootfs: found ✓", extractor_name);
         } else if verbose {
             println!("✓");
         }
