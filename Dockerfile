@@ -58,6 +58,7 @@ RUN apt-get update && \
     openssh-client \
     p7zip \
     p7zip-full \
+    patchelf \
     python3 \
     python3-pip \
     qtbase5-dev \
@@ -84,7 +85,6 @@ RUN pip install --upgrade pip && \
       git+https://github.com/marin-m/vmlinux-to-elf \
       jefferson \
       gnupg \
-      poetry \
       psycopg2-binary \
       pycryptodome \
       pylzma \
@@ -97,8 +97,7 @@ RUN pip install --upgrade pip && \
       zstandard \
       pyelftools \
       lief && \
-    python3 -m pip install python-lzo==1.14 && \
-    poetry config virtualenvs.create false
+    python3 -m pip install python-lzo==1.14
 
 RUN --mount=type=secret,id=github_token \
     GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || echo '')" \
@@ -117,16 +116,34 @@ RUN git clone --depth=1 https://github.com/ReFirmLabs/binwalk /binwalk && \
 RUN git clone --depth=1 https://github.com/davidribyrne/cramfs.git /cramfs && \
    cd /cramfs && make && make install
 
-# Clone unblob fork then install with poetry
-RUN git clone --depth=1 https://github.com/rehosting/unblob.git /unblob
-RUN cd /unblob && poetry install --only main
-
-# Install Rust with cache mount for better performance
+# Install Rust with cache mount (required by unblob maturin build and binwalk v3)
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     curl https://sh.rustup.rs -sSf | bash -s -- -y
 
 # Add .cargo/bin to PATH
 ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Clone unblob fork then install with uv (upstream dropped poetry)
+RUN git clone --depth=1 https://github.com/rehosting/unblob.git /unblob
+
+# Drop [tool.uv.sources] git override for arpy — its sdist breaks setuptools discovery
+RUN python3 <<'PY'
+from pathlib import Path
+p = Path("/unblob/pyproject.toml")
+text = p.read_text()
+marker = "[tool.uv.sources]"
+if marker in text:
+    start = text.index(marker)
+    end = text.find("\n[", start + 1)
+    p.write_text(text[:start] + (text[end:] if end != -1 else ""))
+PY
+
+# Install arpy from PyPI then patch with the onekey-sec fork fix (unblob#767)
+RUN pip install uv 'arpy==2.3.0' && \
+    curl -fsSL -o "$(python3 -c 'import arpy; print(arpy.__file__)')" \
+      "https://raw.githubusercontent.com/onekey-sec/arpy/f6746c566b92a193bfe57edb312809b6299ddab1/arpy.py"
+
+RUN cd /unblob && uv pip install --system --no-cache .
 
 # Install binwalk v3 with cache mount
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
@@ -140,11 +157,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo install --path /fw2tar_src
 
 # Explicitly install unblob deps - mostly captured above, but some of the .debs get updated and installed via curl
-RUN sh -c /unblob/unblob/install-deps.sh
+RUN sh -xe /unblob/install-deps.sh
 
 # We will run as other users (matching uid/gid to host), but binwalk has config files in /root/.config
-# that need to be created and read at runtime.
-RUN chmod -R 777 /root/
+# that need to be created and read at runtime. Only chmod that tree — not all of /root (cargo/rust is huge).
+RUN mkdir -p /root/.config && chmod -R 777 /root/.config
 
 # Try to install custom fakeroot. This is optional - we have regular fakeroot. If we're building
 # with host SSH keys, we can do this, otherwise we'll just skip it
@@ -155,14 +172,6 @@ RUN --mount=type=ssh git clone git@github.com:rehosting/fakeroot.git /fakeroot &
     sed -i 's/^# deb-src/deb-src/' /etc/apt/sources.list && \
     apt-get update && apt-get build-dep -y fakeroot && \
     cd /fakeroot && ./bootstrap && ./configure && make && make install -k || true
-
-# Patch to fix unblob #767 that hasn't yet been upstreamed. Pip install didn't work. I don't understand poetry
-#RUN pip install git+https://github.com/qkaiser/arpy.git
-RUN --mount=type=secret,id=github_token \
-    GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || echo '')" \
-    /usr/local/bin/download_github_asset.sh \
-        "https://raw.githubusercontent.com/qkaiser/arpy/23faf88a88488c41fc4348ea2b70996803f84f40/arpy.py" \
-        /usr/local/lib/python3.10/dist-packages/arpy.py
 
 # Copy wrapper script into container so we can copy out - note we don't put it on guest path
 COPY ./xfs /usr/local/src/xfs_wrapper
